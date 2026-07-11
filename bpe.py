@@ -11,14 +11,31 @@ END = "</w>"  # end-of-word boundary marker
 
 
 def pretokenize(text):
-    """Whitespace words. Same unit as the fertility denominator."""
+    """Whitespace words — the BPE unit.
+
+    We deliberately keep punctuation ATTACHED to its word (e.g. "India,"):
+    experiments showed that force-splitting punctuation into its own token
+    RAISES fertility (tokens/whitespace-word) for 3 of 4 languages, because a
+    standalone punctuation mark is a guaranteed extra token, whereas when it is
+    attached BPE can amortize it into a merge with neighboring characters.
+    """
     return text.split()
 
 
-def _word_freqs(texts):
+def word_count(text):
+    """Number of whitespace words — the fertility denominator (== len of
+    pretokenize here, kept as a named function for clarity)."""
+    return len(text.split())
+
+
+def _word_freqs(texts, weights=None):
+    """Combined word frequencies. `weights[i]` scales corpus i's counts so a
+    language can be given a larger share of the shared merge budget."""
     freqs = Counter()
-    for text in texts:
-        freqs.update(pretokenize(text))
+    for i, text in enumerate(texts):
+        w = 1 if weights is None else weights[i]
+        for word in pretokenize(text):
+            freqs[word] += w
     return freqs
 
 
@@ -53,13 +70,15 @@ def _merge_word(symbols, pair):
     return tuple(out)
 
 
-def train(texts, vocab_size=10000, verbose=True):
+def train(texts, vocab_size=10000, weights=None, verbose=True):
     """Train BPE on `texts`. Returns (merges, vocab).
 
-    merges: ordered list of [a, b] pairs (merge priority = list order).
-    vocab:  sorted list of all tokens (base symbols + merged tokens).
+    weights: optional per-corpus multipliers; upweighting a language biases the
+             shared merge budget toward it (lowering its fertility).
+    merges:  ordered list of [a, b] pairs (merge priority = list order).
+    vocab:   sorted list of all tokens (base symbols + merged tokens).
     """
-    word_freqs = _word_freqs(texts)
+    word_freqs = _word_freqs(texts, weights)
     corpus = {_word_symbols(w): f for w, f in word_freqs.items()}
 
     vocab = set()

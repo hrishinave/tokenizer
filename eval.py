@@ -25,8 +25,8 @@ def strip_marker(token):
 
 
 def roundtrip_ok(text, merges, n=200):
-    """Check the first n words reconstruct exactly from their tokens."""
-    for word in bpe.pretokenize(text)[:n]:
+    """Check the first n whitespace words reconstruct exactly from their tokens."""
+    for word in text.split()[:n]:
         toks = bpe.encode(word, merges)
         if "".join(strip_marker(t) for t in toks) != word:
             return False, word
@@ -42,7 +42,7 @@ def main():
         text = load_text(code)
         tokens = bpe.encode(text, merges)
         n_tokens = len(tokens)
-        n_words = len(bpe.pretokenize(text))
+        n_words = bpe.word_count(text)
         x = n_tokens / n_words
         ok, bad = roundtrip_ok(text, merges)
         results.append((label, code, name, n_words, n_tokens, x, ok, bad))
@@ -65,7 +65,7 @@ def main():
     print("\nSample word -> token splits:")
     for code, name, _ in LANGS:
         text = load_text(code)
-        words = [w for w in bpe.pretokenize(text) if len(w) > 4][:3]
+        words = [w for w in text.split() if len(w) > 4][:3]
         print(f"  {name}:")
         for w in words:
             toks = bpe.encode(w, merges)
