@@ -1,0 +1,4 @@
+# The site is a single static file at web/index.html (no build step).
+# Tell Netlify to serve the web/ folder as the site root.
+[build]
+  publish = "web"
