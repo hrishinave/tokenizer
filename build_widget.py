@@ -8,6 +8,8 @@ anywhere (GitHub Pages, Netlify, S3, or just opened in a browser).
 import json
 import os
 
+import bpe
+
 ROOT = os.path.dirname(os.path.abspath(__file__))
 LANGS = [("en", "English"), ("hi", "Hindi"), ("te", "Telugu"), ("kn", "Kannada")]
 
@@ -56,15 +58,27 @@ def samples(n_words=45):
     return out
 
 
+def per_language_fertility(merges):
+    """Fertility (tokens/words) of each language on its full reference article."""
+    ferts = {}
+    for code, name in LANGS:
+        with open(os.path.join(ROOT, "data", f"{code}.txt"), encoding="utf-8") as f:
+            text = f.read()
+        ferts[name] = round(len(bpe.encode(text, merges)) / len(text.split()), 4)
+    return ferts
+
+
 def build():
     tok = load_tokenizer()
     merges = tok["merges"]
     stats = vocab_stats(tok["vocab"])
     data = {
         "merges": merges,
+        "vocab": tok["vocab"],
         "vocabSize": len(tok["vocab"]),
         "baseSymbols": len(tok["vocab"]) - len(merges),
         "stats": stats,
+        "fertilities": per_language_fertility(merges),
         "samples": samples(),
     }
     html = TEMPLATE.replace("/*__DATA__*/", json.dumps(data, ensure_ascii=False))
@@ -168,7 +182,9 @@ TEMPLATE = r"""<!doctype html>
     <div>
       <h1>India Wikipedia BPE Tokenizer</h1>
     </div>
-    <button class="theme-btn" id="themeBtn" title="Toggle theme">&#9680; Theme</button>
+    <div style="display:flex;gap:8px;flex-shrink:0;">
+      <button class="theme-btn" id="dlBtn" title="Download tokenizer.json">&#8681; Tokenizer</button>
+    </div>
   </header>
 
   <div class="samples">
@@ -202,6 +218,12 @@ TEMPLATE = r"""<!doctype html>
   <div class="card">
     <div class="toolbar"><h2>How the 10k vocabulary is split</h2></div>
     <div class="budget" id="budget"></div>
+  </div>
+
+  <div class="card">
+    <div class="toolbar"><h2>Self Score</h2></div>
+    <div class="n" id="selfscore" style="font-size:2.4rem;font-weight:650;letter-spacing:-.02em;color:var(--accent);">&mdash;</div>
+    <p class="sub" id="selfscore-detail" style="margin-top:6px;"></p>
   </div>
 
 </div>
@@ -315,6 +337,17 @@ function budget(){
   });
 }
 
+// ---- self score: 1000 / (worst fertility - best fertility) ----
+function selfScore(){
+  const vals=Object.values(DATA.fertilities);
+  const worst=Math.max(...vals), best=Math.min(...vals);
+  const score=1000/(worst-best);
+  $("selfscore").textContent=score.toFixed(1);
+  $("selfscore-detail").innerHTML=
+    `1000 &divide; (largest fertility ${worst.toFixed(3)} &minus; best fertility ${best.toFixed(3)}) `+
+    `= 1000 &divide; ${(worst-best).toFixed(3)}`;
+}
+
 // ---- wiring ----
 $("input").addEventListener("input",render);
 $("spaceToggle").addEventListener("change",e=>{
@@ -323,15 +356,18 @@ $("spaceToggle").addEventListener("change",e=>{
 document.querySelectorAll(".pill").forEach(b=>b.addEventListener("click",()=>{
   $("input").value=DATA.samples[b.dataset.lang]||""; render();
 }));
-$("themeBtn").addEventListener("click",()=>{
-  const cur=document.documentElement.getAttribute("data-theme");
-  const next = cur==="dark" ? "light" : cur==="light" ? "dark"
-    : (window.matchMedia("(prefers-color-scheme: dark)").matches ? "light":"dark");
-  document.documentElement.setAttribute("data-theme",next);
+$("dlBtn").addEventListener("click",()=>{
+  const json=JSON.stringify({merges:DATA.merges, vocab:DATA.vocab});
+  const blob=new Blob([json],{type:"application/json"});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement("a");
+  a.href=url; a.download="tokenizer.json";
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 });
 
 $("input").value=DATA.samples["English"]||"";
-try { budget(); render(); window.__widgetReady=true; }
+try { budget(); selfScore(); render(); window.__widgetReady=true; }
 catch(e){ showFatal("init failed: "+((e&&e.message)||e)); }
 </script>
 <script>
