@@ -147,7 +147,7 @@ TEMPLATE = r"""<!doctype html>
     border-radius:12px;background:var(--bg);color:var(--ink);padding:14px;font-size:1rem;
     font-family:inherit;line-height:1.6;}
   textarea:focus{outline:2px solid var(--accent);outline-offset:1px;border-color:transparent;}
-  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:18px;}
+  .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:18px;}
   .stat{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px;}
   .stat .n{font-size:1.5rem;font-weight:650;letter-spacing:-.02em;font-variant-numeric:tabular-nums;}
   .stat .l{color:var(--muted);font-size:.78rem;text-transform:uppercase;letter-spacing:.04em;margin-top:2px;}
@@ -172,6 +172,24 @@ TEMPLATE = r"""<!doctype html>
   .brow .val{width:112px;text-align:right;color:var(--muted);font-variant-numeric:tabular-nums;}
   .foot{color:var(--muted);font-size:.8rem;margin-top:28px;text-align:center;}
   .foot code{background:var(--panel);border:1px solid var(--line);padding:1px 6px;border-radius:6px;}
+  .vfilter{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;}
+  .vfilter .pill.active{background:var(--accent);color:#fff;border-color:transparent;}
+  #vsearch{width:100%;padding:9px 12px;border:1px solid var(--line);border-radius:10px;
+    background:var(--bg);color:var(--ink);font-size:.9rem;font-family:inherit;margin-bottom:10px;}
+  #vsearch:focus{outline:2px solid var(--accent);outline-offset:1px;border-color:transparent;}
+  .vlist{max-height:360px;overflow-y:auto;border:1px solid var(--line);border-radius:10px;}
+  .vrow{display:flex;gap:12px;padding:5px 12px;font-family:ui-monospace,Menlo,Consolas,monospace;
+    font-size:.85rem;border-bottom:1px solid var(--line);}
+  .vrow:last-child{border-bottom:none;}
+  .vrow .id{color:var(--muted);min-width:60px;text-align:right;font-variant-numeric:tabular-nums;}
+  .vrow .tk{word-break:break-all;}
+  .vrow .eow{opacity:.35;}
+  .ftable{width:100%;border-collapse:collapse;font-size:.92rem;}
+  .ftable th,.ftable td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left;}
+  .ftable tr:last-child td{border-bottom:none;}
+  .ftable th{color:var(--muted);font-weight:500;font-size:.75rem;text-transform:uppercase;letter-spacing:.04em;}
+  .ftable td.num{text-align:right;font-variant-numeric:tabular-nums;font-family:ui-monospace,Menlo,Consolas,monospace;}
+  .ftable .tag{color:var(--muted);font-size:.78rem;}
   @media (max-width:560px){ .stats{grid-template-columns:repeat(2,1fr);} h1{font-size:1.3rem;} }
 </style>
 </head>
@@ -203,7 +221,6 @@ TEMPLATE = r"""<!doctype html>
     <div class="stat"><div class="n" id="s-chars">0</div><div class="l">Characters</div></div>
     <div class="stat"><div class="n" id="s-words">0</div><div class="l">Words</div></div>
     <div class="stat"><div class="n" id="s-tokens">0</div><div class="l">Tokens</div></div>
-    <div class="stat hl"><div class="n" id="s-fert">&mdash;</div><div class="l">Fertility (tok/word)</div></div>
   </div>
 
   <div class="card">
@@ -221,9 +238,21 @@ TEMPLATE = r"""<!doctype html>
   </div>
 
   <div class="card">
+    <div class="toolbar"><h2>Fertility by language</h2></div>
+    <table class="ftable" id="ftable"></table>
+  </div>
+
+  <div class="card">
     <div class="toolbar"><h2>Self Score</h2></div>
     <div class="n" id="selfscore" style="font-size:2.4rem;font-weight:650;letter-spacing:-.02em;color:var(--accent);">&mdash;</div>
     <p class="sub" id="selfscore-detail" style="margin-top:6px;"></p>
+  </div>
+
+  <div class="card">
+    <div class="toolbar"><h2>Vocabulary</h2><span class="sub" id="vocab-count"></span></div>
+    <div class="vfilter" id="vfilter"></div>
+    <input id="vsearch" type="text" placeholder="search tokens&hellip;" autocomplete="off">
+    <div class="vlist" id="vlist"></div>
   </div>
 
 </div>
@@ -295,7 +324,6 @@ function render(){
   $("s-chars").textContent=nf(Array.from(text).length);
   $("s-words").textContent=nf(nWords);
   $("s-tokens").textContent=nf(nTokens);
-  $("s-fert").textContent=nWords? (nTokens/nWords).toFixed(3) : "—";
 
   const out=$("out"); out.innerHTML="";
   let ci=0;
@@ -337,6 +365,20 @@ function budget(){
   });
 }
 
+// ---- fertility (tokens/word) per language, measured on the full articles ----
+function renderFertility(){
+  const f=DATA.fertilities, vals=Object.values(f);
+  const worst=Math.max(...vals), best=Math.min(...vals);
+  let html="<tr><th>Language</th><th style='text-align:right'>Fertility (tok/word)</th></tr>";
+  for(const lang in f){
+    const x=f[lang];
+    const tag = x===best ? ' <span class="tag">best</span>'
+              : x===worst ? ' <span class="tag">largest</span>' : '';
+    html+='<tr><td>'+lang+tag+'</td><td class="num">'+x.toFixed(3)+'</td></tr>';
+  }
+  $("ftable").innerHTML=html;
+}
+
 // ---- self score: 1000 / (worst fertility - best fertility) ----
 function selfScore(){
   const vals=Object.values(DATA.fertilities);
@@ -348,12 +390,60 @@ function selfScore(){
     `= 1000 &divide; ${(worst-best).toFixed(3)}`;
 }
 
+// ---- vocabulary explorer (ID + token, filter by language, search) ----
+function esc(s){ return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+function tokenScript(tok){
+  const t=tok.split(END).join("");
+  const has=new Set();
+  for(const ch of t){
+    const o=ch.codePointAt(0);
+    if(o>=0x0900&&o<=0x097F)has.add("Hindi");
+    else if(o>=0x0C00&&o<=0x0C7F)has.add("Telugu");
+    else if(o>=0x0C80&&o<=0x0CFF)has.add("Kannada");
+    else if((ch>='a'&&ch<='z')||(ch>='A'&&ch<='Z'))has.add("English");
+  }
+  if(has.size===0)return "shared";
+  if(has.size===1)return has.values().next().value;
+  return "mixed";
+}
+const VOCAB=DATA.vocab.map((t,i)=>({id:i,tok:t,s:tokenScript(t)}));
+let vFilter="All", vQuery="";
+const VCAP=3000;
+function renderVocab(){
+  const q=vQuery.trim().toLowerCase();
+  let rows=VOCAB;
+  if(vFilter!=="All") rows=rows.filter(r=>r.s===vFilter);
+  if(q) rows=rows.filter(r=>r.tok.toLowerCase().indexOf(q)>=0);
+  $("vocab-count").textContent=rows.length.toLocaleString()+" / "+VOCAB.length.toLocaleString();
+  const shown=rows.slice(0,VCAP);
+  let html=shown.map(r=>{
+    const eow=r.tok.slice(-END.length)===END;
+    const t=esc(r.tok.split(END).join(""));
+    return '<div class="vrow"><span class="id">#'+r.id+'</span><span class="tk">'+t+(eow?'<span class="eow">␣</span>':'')+'</span></div>';
+  }).join("");
+  if(rows.length>VCAP) html+='<div class="vrow"><span class="id"></span><span class="tk" style="opacity:.6">… and '+(rows.length-VCAP).toLocaleString()+' more — refine with search</span></div>';
+  $("vlist").innerHTML=html || '<div class="vrow"><span class="tk" style="opacity:.6">no tokens match</span></div>';
+}
+function buildVocabFilter(){
+  const langs=["All","English","Hindi","Telugu","Kannada","shared"];
+  if(VOCAB.some(r=>r.s==="mixed")) langs.push("mixed");
+  const el=$("vfilter"); el.innerHTML="";
+  langs.forEach(l=>{
+    const b=document.createElement("button");
+    b.className="pill"+(l===vFilter?" active":"");
+    b.textContent=l;
+    b.addEventListener("click",()=>{ vFilter=l; buildVocabFilter(); renderVocab(); });
+    el.appendChild(b);
+  });
+}
+
 // ---- wiring ----
 $("input").addEventListener("input",render);
 $("spaceToggle").addEventListener("change",e=>{
   $("out").classList.toggle("spaced", e.target.checked);
 });
-document.querySelectorAll(".pill").forEach(b=>b.addEventListener("click",()=>{
+$("vsearch").addEventListener("input",e=>{ vQuery=e.target.value; renderVocab(); });
+document.querySelectorAll(".samples .pill").forEach(b=>b.addEventListener("click",()=>{
   $("input").value=DATA.samples[b.dataset.lang]||""; render();
 }));
 $("dlBtn").addEventListener("click",()=>{
@@ -367,7 +457,7 @@ $("dlBtn").addEventListener("click",()=>{
 });
 
 $("input").value=DATA.samples["English"]||"";
-try { budget(); selfScore(); render(); window.__widgetReady=true; }
+try { budget(); renderFertility(); selfScore(); buildVocabFilter(); renderVocab(); render(); window.__widgetReady=true; }
 catch(e){ showFatal("init failed: "+((e&&e.message)||e)); }
 </script>
 <script>
