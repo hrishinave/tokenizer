@@ -2,3 +2,11 @@
 # Tell Netlify to serve the web/ folder as the site root.
 [build]
   publish = "web"
+
+# Serve web/tokenizer.json as a forced download at /tokenizer.json,
+# so the shareable link downloads the file instead of rendering it.
+[[headers]]
+  for = "/tokenizer.json"
+  [headers.values]
+    Content-Type = "application/json"
+    Content-Disposition = "attachment; filename=\"tokenizer.json\""

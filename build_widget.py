@@ -7,6 +7,7 @@ anywhere (GitHub Pages, Netlify, S3, or just opened in a browser).
 """
 import json
 import os
+import shutil
 
 import bpe
 
@@ -94,6 +95,12 @@ def build():
         f.write(html)
     kb = os.path.getsize(out_path) / 1024
     print(f"Wrote {out_path} ({kb:.0f} KB, {len(merges)} merges embedded)")
+
+    # Also publish the raw tokenizer.json as a static file, so it has a direct
+    # shareable download URL (e.g. https://<your-site>/tokenizer.json).
+    dst = os.path.join(ROOT, "web", "tokenizer.json")
+    shutil.copyfile(os.path.join(ROOT, "tokenizer.json"), dst)
+    print(f"Wrote {dst} ({os.path.getsize(dst) / 1024:.0f} KB) -> shareable at /tokenizer.json")
 
 
 TEMPLATE = r"""<!doctype html>
